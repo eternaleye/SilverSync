@@ -77,7 +77,7 @@ class Sync(object):
             timeout = int(r.headers['X-Weave-Backoff'])
             return timeout
         if not r.ok:
-            raise Unknown(r.headers['X-Weave-Alert'])
+            raise Unknown(r.text)
 
         return 0
 
@@ -92,14 +92,14 @@ class Sync(object):
 
         return r.text
         
-    def get(self, path, parameters = dict()):
-        url = '/'.join((self.node, self.api, self.username, path))
-        r = requests.get(url, auth=(self.username, self._password), params=parameters)
+    def get(self, path, **kwargs):
+        url = self.url_from_path(path)
+        r = requests.get(url, auth=(self.username, self._password), params=kwargs)
         timeout = self.check_errors(r)
         if timeout != 0:
             warnings.warn("Server under load; waiting for " + timeout + " as requested.")
             sleep(timeout)
-            self.get(path)
+            self.get(path, **kwargs)
         return json.loads(r.text)
 
     def get_meta(self):
@@ -163,10 +163,20 @@ class Engine(object):
     def getEntryLocation(self, syncID):
         return self.getCollectionLocation() + "/" + syncID
 
+    def getEntry(self, syncID):
+        return self.sync.decrypt(
+            json.loads(
+                self.sync.get(
+                    self.getEntryLocation(
+                        syncID
+                    )
+                )['payload']
+            )
+        )
+
     def buildData(self, **kwargs):
-        params = dict(kwargs)
-        entries = self.sync.get(self.getCollectionLocation(), params )
-        if params.has_key('full'):
+        entries = self.sync.get(self.getCollectionLocation(), **kwargs )
+        if kwargs.has_key('full'):
             return itertools.imap(
                 self.sync.decrypt, itertools.imap(
                     json.loads, itertools.imap(
@@ -175,17 +185,7 @@ class Engine(object):
                 )
             )
         else:
-            return itertools.imap(
-                self.sync.decrypt, itertools.imap(
-                    json.loads, itertools.imap(
-                        lambda entry: entry['payload'], itertools.imap(
-                            self.sync.get, itertools.imap(
-                                self.getEntryLocation, entries
-                            )
-                        )
-                    )
-                )
-            )
+            return itertools.imap(self.getEntry, entries)
 
 class BookmarksEngine(Engine):
     handles = 'bookmarks'
@@ -214,6 +214,9 @@ class GenericEngine(Engine):
         Engine.__init__(self, syncObj)
 
 def main():
+    class StorageVersionUnsupported(SyncException):
+        pass
+
     sys.stderr.write("Username: ")
     username = raw_input()
     sys.stderr.write("Password: ")
@@ -228,7 +231,8 @@ def main():
 
     s = Sync(username, password, passphrase)
     meta = s.get_meta()
-    assert meta['storageVersion'] == 5
+    if meta['storageVersion'] != 5:
+        raise StorageVersionUnsupported()
 
     r = {}
     r['meta'] = meta
