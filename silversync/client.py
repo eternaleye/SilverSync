@@ -12,12 +12,25 @@ import base64
 import hashlib
 import hmac
 import itertools
+import warnings
 from M2Crypto.EVP import Cipher
 
 class SyncException(Exception):
     pass
 
 class InvalidPassphrase(SyncException):
+    pass
+
+class InvalidUser(SyncException):
+    pass
+
+class InvalidRequest(SyncException):
+    pass
+
+class ResourceNotFound(SyncException):
+    pass
+
+class NoSuchCollection(SyncException):
     pass
 
 class Unauthorized(SyncException):
@@ -35,6 +48,8 @@ class Sync(object):
         self.username = username
         self._password =  password
         self.passphrase = self.decode_passphrase(passphrase)
+        if not self.check_username():
+            raise InvalidUser()
         if self.passphrase is None:
             raise InvalidPassphrase()
 
@@ -42,19 +57,48 @@ class Sync(object):
         self.encryption_key = self.hmac_sha256(self.passphrase, "%s%s\x01" % (self.HMAC_INPUT, self.username))
         self.get_key()
 
+    def check_username(self):
+        url = self.server + '/user/1.0/' + self.username
+        r = requests.get(url)
+        if int(r.text) == 0:
+            return False
+        else:
+            return True
+
+    def check_errors(self, r):
+        if r.status_code == 400:
+            raise InvalidRequest()
+        elif r.status_code == 401:
+            raise Unauthorized()
+        elif r.status_code == 404:
+            raise ResourceNotFound()
+        elif r.status_code == 503:
+            timeout = int(r.headers['X-Weave-Backoff'])
+            return timeout
+        if not r.ok:
+            raise Unknown(r.headers['X-Weave-Alert'])
+
+        return 0
+
     def get_node(self):
         url = self.server + '/user/1.0/' + self.username + '/node/weave'
         r = requests.get(url, auth=(self.username, self._password))
-        if r.status_code == 401:
-            raise Unauthorized()
-        if not r.ok:
-            raise Unknown()
+        timeout = self.check_errors(r)
+        if timeout != 0:
+            warnings.warn("Server under load; waiting for " + timeout + " as requested.")
+            sleep(timeout)
+            self.get_node()
 
         return r.text
         
     def get(self, path):
         url = '/'.join((self.node, self.api, self.username, path))
         r = requests.get(url, auth=(self.username, self._password))
+        timeout = self.check_errors(r)
+        if timeout != 0:
+            warnings.warn("Server under load; waiting for " + timeout + " as requested.")
+            sleep(timeout)
+            self.get(path)
         return json.loads(r.text)
 
     def get_meta(self):
@@ -109,7 +153,7 @@ class Engine(object):
 
     def __init__(self, syncObj):
         if not syncObj.get_meta()['engines'].has_key(self.handles):
-            raise SyncException()
+            raise NoSuchCollection()
         self.sync = syncObj
 
     def getCollectionLocation(self):
