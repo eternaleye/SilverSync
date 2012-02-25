@@ -31,7 +31,7 @@ class Sync(object):
     HMAC_INPUT = "Sync-AES_256_CBC-HMAC256"
 
     def __init__(self, username, password, passphrase):
-        self.username = self.encode_username(username)
+        self.username = username
         self._password =  password
         self.passphrase = self.decode_passphrase(passphrase)
         if self.passphrase is None:
@@ -49,12 +49,12 @@ class Sync(object):
         if not r.ok:
             raise Unknown()
 
-        return r.read()
+        return r.text
         
     def get(self, path):
         url = '/'.join((self.node, self.api, self.username, path))
         r = requests.get(url, auth=(self.username, self._password))
-        return json.loads(r.read())
+        return json.loads(r.text)
 
     def get_meta(self):
         data = self.get('storage/meta/global')
@@ -103,10 +103,6 @@ class Sync(object):
         d = self.get("storage/bookmarks/%s" % id)
         payload = json.loads(d['payload'])
         return self.decrypt(payload)
-
-    @staticmethod
-    def encode_username(u):
-        return base64.b32encode(hashlib.sha1(u).digest()).lower()
 
     @staticmethod
     def hmac_sha256(key, s):
