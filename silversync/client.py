@@ -92,9 +92,9 @@ class Sync(object):
 
         return r.text
         
-    def get(self, path):
+    def get(self, path, parameters = dict()):
         url = '/'.join((self.node, self.api, self.username, path))
-        r = requests.get(url, auth=(self.username, self._password))
+        r = requests.get(url, auth=(self.username, self._password), params=parameters)
         timeout = self.check_errors(r)
         if timeout != 0:
             warnings.warn("Server under load; waiting for " + timeout + " as requested.")
@@ -163,27 +163,29 @@ class Engine(object):
     def getEntryLocation(self, syncID):
         return self.getCollectionLocation() + "/" + syncID
 
-    def buildData(self):
-        ids = self.sync.get(self.getCollectionLocation())
-        return itertools.imap(
-            self.sync.decrypt, itertools.imap(
-                json.loads, itertools.imap(
-                    self.sync.get, itertools.imap(
-                        self.getCollectionLocation, ids
+    def buildData(self, **kwargs):
+        params = dict(kwargs)
+        entries = self.sync.get(self.getCollectionLocation(), params )
+        if params.has_key('full'):
+            return itertools.imap(
+                self.sync.decrypt, itertools.imap(
+                    json.loads, itertools.imap(
+                        lambda entry: entry['payload'], entries
                     )
                 )
             )
-        )
-
-    def buildDataFull(self):
-        entries = self.sync.get(self.getCollectionLocation() + "?full=1")
-        return itertools.imap(
-            self.sync.decrypt, itertools.imap(
-                json.loads, itertools.imap(
-                    lambda entry: entry['payload'], entries
+        else:
+            return itertools.imap(
+                self.sync.decrypt, itertools.imap(
+                    json.loads, itertools.imap(
+                        lambda entry: entry['payload'], itertools.imap(
+                            self.sync.get, itertools.imap(
+                                self.getEntryLocation, entries
+                            )
+                        )
+                    )
                 )
             )
-        )
 
 class BookmarksEngine(Engine):
     handles = 'bookmarks'
@@ -242,7 +244,7 @@ def main():
     )
 
     for collection in r['meta']['engines'].keys():
-        r[collection] = map( lambda x: x, engines[collection].buildDataFull() if engines.has_key(collection) else GenericEngine(s, collection).buildDataFull())
+        r[collection] = map( lambda x: x, engines[collection].buildData(full=1) if engines.has_key(collection) else GenericEngine(s, collection).buildData(full=1))
 
     print json.dumps( r )
 
