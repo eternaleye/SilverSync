@@ -121,9 +121,9 @@ class Sync(object):
             return None
 
 def main():
-    username = "user@bla"
-    password = "secret"
-    passphrase = "a-abcde-12345-abcde-12345-abcde"
+    username = raw_input("Username: ")
+    password = raw_input("Password: ")
+    passphrase = raw_input("Sync key: ")
 
     try:
         from credentials import username, password, passphrase
