@@ -12,7 +12,6 @@ import base64
 import hashlib
 import hmac
 import itertools
-import pprint
 from M2Crypto.EVP import Cipher
 
 class SyncException(Exception):
@@ -197,7 +196,7 @@ def main():
     for collection in r['meta']['engines'].keys():
         r[collection] = map( lambda x: x, engines[collection].buildDataFull() if engines.has_key(collection) else GenericEngine(s, collection).buildDataFull())
 
-    print pprint.pprint( r )
+    print json.dumps( r )
 
 if __name__ == '__main__':
     main()
