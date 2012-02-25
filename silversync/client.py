@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import itertools
 import warnings
+import sys
 from M2Crypto.EVP import Cipher
 
 class SyncException(Exception):
@@ -211,9 +212,12 @@ class GenericEngine(Engine):
         Engine.__init__(self, syncObj)
 
 def main():
-    username = raw_input("Username: ")
-    password = raw_input("Password: ")
-    passphrase = raw_input("Sync key: ")
+    sys.stderr.write("Username: ")
+    username = raw_input()
+    sys.stderr.write("Password: ")
+    password = raw_input()
+    sys.stderr.write("Sync key: ")
+    passphrase = raw_input()
 
     try:
         from credentials import username, password, passphrase
