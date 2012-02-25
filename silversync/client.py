@@ -11,6 +11,8 @@ import json
 import base64
 import hashlib
 import hmac
+import itertools
+import pprint
 from M2Crypto.EVP import Cipher
 
 class SyncException(Exception):
@@ -86,24 +88,6 @@ class Sync(object):
 
         return self.cipher_decrypt(ciphertext, self.privkey, IV)
 
-    def bookmarks(self):
-        d = self.get("storage/bookmarks")
-        return d 
-
-    def passwords(self):
-        d = self.get("storage/passwords?full=1")
-        res = []
-        for p in d:
-            payload = json.loads(p['payload'])
-            res.append( self.decrypt(payload))
-        return res
-
-    def bookmark(self, id):
-        # url = "storage/bookmarks?ids=%s" % urllib.quote(','.join(ids))
-        d = self.get("storage/bookmarks/%s" % id)
-        payload = json.loads(d['payload'])
-        return self.decrypt(payload)
-
     @staticmethod
     def hmac_sha256(key, s):
         return hmac.new(key, s, hashlib.sha256).digest()
@@ -120,6 +104,69 @@ class Sync(object):
         except TypeError:
             return None
 
+class Engine(object):
+    handles = None
+    sync = None
+
+    def __init__(self, syncObj):
+        if not syncObj.get_meta()['engines'].has_key(self.handles):
+            raise SyncException()
+        self.sync = syncObj
+
+    def getCollectionLocation(self):
+        return "storage/" + self.handles
+
+    def getEntryLocation(self, syncID):
+        return self.getCollectionLocation() + "/" + syncID
+
+    def buildData(self):
+        ids = self.sync.get(self.getCollectionLocation())
+        return itertools.imap(
+            self.sync.decrypt, itertools.imap(
+                json.loads, itertools.imap(
+                    self.sync.get, itertools.imap(
+                        self.getCollectionLocation, ids
+                    )
+                )
+            )
+        )
+
+    def buildDataFull(self):
+        entries = self.sync.get(self.getCollectionLocation() + "?full=1")
+        return itertools.imap(
+            self.sync.decrypt, itertools.imap(
+                json.loads, itertools.imap(
+                    lambda entry: entry['payload'], entries
+                )
+            )
+        )
+
+class BookmarksEngine(Engine):
+    handles = 'bookmarks'
+
+class PasswordsEngine(Engine):
+    handles = 'passwords'
+
+class TabsEngine(Engine):
+    handles = 'tabs'
+
+class HistoryEngine(Engine):
+    handles = 'history'
+
+class ClientsEngine(Engine):
+    handles = 'clients'
+
+class FormsEngine(Engine):
+    handles = 'forms'
+
+class PrefsEngine(Engine):
+    handles = 'prefs'
+
+class GenericEngine(Engine):
+    def __init__(self, syncObj, toHandle):
+        self.handles = toHandle
+        Engine.__init__(self, syncObj)
+
 def main():
     username = raw_input("Username: ")
     password = raw_input("Password: ")
@@ -134,13 +181,23 @@ def main():
     meta = s.get_meta()
     assert meta['storageVersion'] == 5
 
-    import pprint
-    pprint.pprint(meta)
-    # ids = s.bookmarks()
-    # for id in ids[:3]:
-    #     pprint.pprint(s.bookmark(id))
-    passwords = s.passwords()
-    pprint.pprint(passwords)
+    r = {}
+    r['meta'] = meta
+
+    engines = dict(
+        map(
+            lambda engine: (engine.handles, engine), map(
+                lambda engine: engine(s), [
+                    BookmarksEngine, PasswordsEngine, TabsEngine, HistoryEngine, ClientsEngine, FormsEngine, PrefsEngine
+                ]
+            )
+        )
+    )
+
+    for collection in r['meta']['engines'].keys():
+        r[collection] = map( lambda x: x, engines[collection].buildDataFull() if engines.has_key(collection) else GenericEngine(s, collection).buildDataFull())
+
+    print pprint.pprint( r )
 
 if __name__ == '__main__':
     main()
